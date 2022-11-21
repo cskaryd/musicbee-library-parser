@@ -1,6 +1,8 @@
 ﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Text;
 using System.Windows.Forms;
 
@@ -141,9 +143,17 @@ namespace MusicBeeReader
           if (le.Status > 6)
             throw new Exception("Bad status");
 
+          le.Artwork = new List<LibraryArtwork>();
+          le.CueData = new List<LibraryCueSheetTag>();
+
           le.Unknown = ReadBytesToArray(1)[0];
           le.PlayCount = BitConverter.ToUInt16(ReadBytesToArray(2));
-          le.DateLastPlayed = BitConverter.ToInt64(ReadBytesToArray(8));
+
+          var dateBytes = ReadBytesToArray(8);
+
+          dateBytes[7] = 8;
+          le.DateLastPlayed = BitConverter.ToInt64(dateBytes);
+
           le.SkipCount = BitConverter.ToUInt16(ReadBytesToArray(2));
           le.FilePath = ReadStringFromBytes();
           le.FileSize = BitConverter.ToInt32(ReadBytesToArray(4));
@@ -152,10 +162,18 @@ namespace MusicBeeReader
           le.BitrateType = ReadBytesToArray(1)[0];
           le.Bitrate = BitConverter.ToInt16(ReadBytesToArray(2));
           le.TrackLengthMS = BitConverter.ToInt32(ReadBytesToArray(4));
-          le.DateAdded = BitConverter.ToInt64(ReadBytesToArray(8));
-          le.DateModified = BitConverter.ToInt64(ReadBytesToArray(8));
-          le.Artwork = new List<LibraryArtwork>();
-          le.CueData = new List<LibraryCueSheetTag>();
+
+          dateBytes = ReadBytesToArray(8);
+
+          dateBytes[7] = 8;
+          le.DateAdded = BitConverter.ToInt64(dateBytes);
+
+          dateBytes = ReadBytesToArray(8);
+
+          dateBytes[7] = 8;
+          le.DateModified = BitConverter.ToInt64(dateBytes);
+
+          Debug.WriteLine(le.FilePath);
 
           while (true)
           {
