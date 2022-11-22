@@ -1,8 +1,8 @@
 ﻿using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Text;
 using System.Windows.Forms;
 
@@ -101,6 +101,23 @@ namespace MusicBeeReader
       InitializeComponent();
     }
 
+    private int DecodeFrom7Bytes(int[] Values)
+    {
+      int i = 0;
+      int result = 0;
+
+      foreach (int val in Values)
+      {
+        result |= (val & 0x7f) << (7 * i);
+        i++;
+
+        if ((val & 0x80) == 0)
+          break;
+      }
+
+      return result;
+    }
+
     private byte[] ReadBytesToArray(int Length)
     {
       var data = new Span<byte>(new byte[Length]);
@@ -112,8 +129,25 @@ namespace MusicBeeReader
 
     private string ReadStringFromBytes()
     {
-      var len = MusicBeeLibrary.ReadByte();
-      var strBytes = ReadBytesToArray(len);
+      int length;
+      int len_1 = ReadBytesToArray(1)[0];
+
+      if (len_1 > 0x7F)
+      {
+        int len_2 = ReadBytesToArray(1)[0];
+
+        if (len_2 > 0x7F)
+          length = DecodeFrom7Bytes(new int[] { len_1, len_2, ReadBytesToArray(1)[0] });
+        else
+          length = DecodeFrom7Bytes(new int[] { len_1, len_2 }); 
+      }
+      else
+        length = len_1;
+
+      if (length == 0)
+        return "";
+
+      var strBytes = ReadBytesToArray(length);
 
       return Encoding.Default.GetString(strBytes);
     }
