@@ -2,15 +2,17 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using System.Text;
 using System.Windows.Forms;
 
 namespace MusicBeeReader
 {
-  public partial class Form1 : Form
+  public partial class frmMBLViewer : Form
   {
     private System.IO.FileStream MusicBeeLibrary;
+    private MBLibrary LibraryData;
+    private int CurrentTrackNo = 0;
+    private Dictionary<int, long> TrackPositions;
 
     protected class MBLibrary
     {
@@ -30,7 +32,7 @@ namespace MusicBeeReader
       {
         get
         {
-          try { return new DateTime(DateLastPlayed); }
+          try { return DateLastPlayed == 0 ? null : new DateTime(DateLastPlayed); }
           catch { return null; }
         }
       }
@@ -54,23 +56,21 @@ namespace MusicBeeReader
 
       public Int64 DateAdded { get; set; }       // 8 bytes / int64
 
-      public DateTime? da
+      public DateTime da
       {
         get
         {
-          try { return new DateTime(DateAdded); }
-          catch { return null; }
+          return new DateTime(DateAdded);
         }
       }
 
       public Int64 DateModified { get; set; }    // 8 bytes / int64
 
-      public DateTime? dm
+      public DateTime dm
       {
         get
         {
-          try { return new DateTime(DateModified); }
-          catch { return null; }
+          return new DateTime(DateModified);
         }
       }
 
@@ -96,7 +96,7 @@ namespace MusicBeeReader
       public UInt16 Part3 { get; set; } // 2 bytes / string
     }
 
-    public Form1()
+    public frmMBLViewer()
     {
       InitializeComponent();
     }
@@ -139,7 +139,7 @@ namespace MusicBeeReader
         if (len_2 > 0x7F)
           length = DecodeFrom7Bytes(new int[] { len_1, len_2, ReadBytesToArray(1)[0] });
         else
-          length = DecodeFrom7Bytes(new int[] { len_1, len_2 }); 
+          length = DecodeFrom7Bytes(new int[] { len_1, len_2 });
       }
       else
         length = len_1;
@@ -152,127 +152,217 @@ namespace MusicBeeReader
       return Encoding.Default.GetString(strBytes);
     }
 
-    private void button1_Click(object sender, EventArgs e)
+    private void btnNext_Click(object sender, EventArgs e)
     {
-      MusicBeeLibrary = System.IO.File.Open(".\\MusicBeeLibrary.mbl", System.IO.FileMode.Open);
+      CurrentTrackNo++;
 
-      var mbl = new MBLibrary();
+      if (!TrackPositions.ContainsKey(CurrentTrackNo))
+        TrackPositions.Add(CurrentTrackNo, MusicBeeLibrary.Position);
 
-      mbl.LibraryFileCount = BitConverter.ToInt32(ReadBytesToArray(4)) >> 8;
-      mbl.Files = new List<LibraryEntry>();
+      GetTrack();
+    }
 
-      while (true)
+    private void btnPrev_Click(object sender, EventArgs e)
+    {
+      CurrentTrackNo--;
+      MusicBeeLibrary.Position = TrackPositions[CurrentTrackNo];
+      GetTrack();
+    }
+
+    private void GetTrack()
+    {
+      var le = new LibraryEntry();
+
+      le.FileDesignation = ReadBytesToArray(1)[0];
+
+      if (le.FileDesignation == 1)
+        return; // FIXME - Log something here
+
+      if (10 > le.FileDesignation && le.FileDesignation > 1)
       {
-        var le = new LibraryEntry();
+        le.Status = ReadBytesToArray(1)[0];
 
-        le.FileDesignation = ReadBytesToArray(1)[0];
+        if (le.Status > 6)
+          throw new Exception("Bad status");
 
-        if (le.FileDesignation == 1)
-          break;
+        le.Artwork = new List<LibraryArtwork>();
+        le.CueData = new List<LibraryCueSheetTag>();
 
-        if (10 > le.FileDesignation && le.FileDesignation > 1)
+        le.Unknown = ReadBytesToArray(1)[0];
+        le.PlayCount = BitConverter.ToUInt16(ReadBytesToArray(2));
+
+        var hasValue = false;
+        var dateBytes = ReadBytesToArray(8);
+
+        foreach (var b in dateBytes)
+          if (b != 0)
+            hasValue = true;
+
+        if (hasValue)
         {
-          le.Status = ReadBytesToArray(1)[0];
-
-          if (le.Status > 6)
-            throw new Exception("Bad status");
-
-          le.Artwork = new List<LibraryArtwork>();
-          le.CueData = new List<LibraryCueSheetTag>();
-
-          le.Unknown = ReadBytesToArray(1)[0];
-          le.PlayCount = BitConverter.ToUInt16(ReadBytesToArray(2));
-
-          var dateBytes = ReadBytesToArray(8);
-
           dateBytes[7] = 8;
           le.DateLastPlayed = BitConverter.ToInt64(dateBytes);
+        }
+        else
+          le.DateLastPlayed = 0;
 
-          le.SkipCount = BitConverter.ToUInt16(ReadBytesToArray(2));
-          le.FilePath = ReadStringFromBytes();
-          le.FileSize = BitConverter.ToInt32(ReadBytesToArray(4));
-          le.SampleRate = BitConverter.ToInt32(ReadBytesToArray(4));
-          le.ChannelIndicator = ReadBytesToArray(1)[0];
-          le.BitrateType = ReadBytesToArray(1)[0];
-          le.Bitrate = BitConverter.ToInt16(ReadBytesToArray(2));
-          le.TrackLengthMS = BitConverter.ToInt32(ReadBytesToArray(4));
+        le.SkipCount = BitConverter.ToUInt16(ReadBytesToArray(2));
+        le.FilePath = ReadStringFromBytes();
+        le.FileSize = BitConverter.ToInt32(ReadBytesToArray(4));
+        le.SampleRate = BitConverter.ToInt32(ReadBytesToArray(4));
+        le.ChannelIndicator = ReadBytesToArray(1)[0];
+        le.BitrateType = ReadBytesToArray(1)[0];
+        le.Bitrate = BitConverter.ToInt16(ReadBytesToArray(2));
+        le.TrackLengthMS = BitConverter.ToInt32(ReadBytesToArray(4));
 
-          dateBytes = ReadBytesToArray(8);
+        dateBytes = ReadBytesToArray(8);
 
-          dateBytes[7] = 8;
-          le.DateAdded = BitConverter.ToInt64(dateBytes);
+        dateBytes[7] = 8;
+        le.DateAdded = BitConverter.ToInt64(dateBytes);
 
-          dateBytes = ReadBytesToArray(8);
+        dateBytes = ReadBytesToArray(8);
 
-          dateBytes[7] = 8;
-          le.DateModified = BitConverter.ToInt64(dateBytes);
+        dateBytes[7] = 8;
+        le.DateModified = BitConverter.ToInt64(dateBytes);
 
-          Debug.WriteLine(le.FilePath);
+        Debug.WriteLine(le.FilePath);
 
-          while (true)
+        while (true)
+        {
+          var artType = ReadBytesToArray(1)[0];
+
+          if (artType > 253)
+            break;
+
+          var art = new LibraryArtwork();
+
+          art.ArtType = artType;
+          art.ArtData = ReadStringFromBytes();
+          art.StorageMode = ReadBytesToArray(1)[0];
+          art.StorageData = ReadStringFromBytes();
+
+          le.Artwork.Add(art);
+        }
+
+        le.TagType = ReadBytesToArray(1)[0];
+        le.Tags = new List<Tuple<byte, string>>();
+
+        while (true)
+        {
+          var tagCode = ReadBytesToArray(1)[0];
+
+          if (tagCode == 0)
+            break;
+
+          if (tagCode == 255)
           {
-            var artType = ReadBytesToArray(1)[0];
+            var c = BitConverter.ToInt16(ReadBytesToArray(2));
+            var i = 0;
 
-            if (artType > 253)
-              break;
-
-            var art = new LibraryArtwork();
-
-            art.ArtType = artType;
-            art.ArtData = ReadStringFromBytes();
-            art.StorageMode = ReadBytesToArray(1)[0];
-            art.StorageData = ReadStringFromBytes();
-
-            le.Artwork.Add(art);
-          }
-
-          le.TagType = ReadBytesToArray(1)[0];
-          le.Tags = new List<Tuple<byte, string>>();
-
-          while (true)
-          {
-            var tagCode = ReadBytesToArray(1)[0];
-
-            if (tagCode == 0)
-              break;
-
-            if (tagCode == 255)
+            while (i < c)
             {
-              var c = BitConverter.ToInt16(ReadBytesToArray(2));
-              var i = 0;
+              var cst = new LibraryCueSheetTag();
 
-              while (i < c)
-              {
-                var cst = new LibraryCueSheetTag();
+              cst.SheetId = ReadBytesToArray(1)[0];
+              cst.Part1 = BitConverter.ToUInt16(ReadBytesToArray(2));
+              cst.Part2 = BitConverter.ToInt64(ReadBytesToArray(8));
+              cst.Part3 = BitConverter.ToUInt16(ReadBytesToArray(2));
 
-                cst.SheetId = ReadBytesToArray(1)[0];
-                cst.Part1 = BitConverter.ToUInt16(ReadBytesToArray(2));
-                cst.Part2 = BitConverter.ToInt64(ReadBytesToArray(8));
-                cst.Part3 = BitConverter.ToUInt16(ReadBytesToArray(2));
-
-                le.CueData.Add(cst);
-                i += 1;
-              }
-
-              break;
+              le.CueData.Add(cst);
+              i += 1;
             }
 
-            le.Tags.Add(new Tuple<byte, string>(tagCode, ReadStringFromBytes()));
+            break;
           }
 
-          mbl.Files.Add(le);
+          le.Tags.Add(new Tuple<byte, string>(tagCode, ReadStringFromBytes()));
         }
+
+        LibraryData.Files.Add(le);
+
+        txtPath.Text = le.FilePath;
+
+        if (le.dlp.HasValue)
+          txtLastPlayed.Text = le.dlp.Value.ToString("yyyy-MM-dd hh:mm:ss");
+        else
+          txtLastPlayed.Text = "";
+
+        txtDateAdded.Text = le.da.ToString("yyyy-MM-dd hh:mm:ss");
+        txtDateModified.Text = le.dm.ToString("yyyy-MM-dd hh:mm:ss");
+
+        txtSample.Text = le.SampleRate.ToString();
+        txtTrackLength.Text = le.TrackLength.ToString();
+        txtPlayCount.Text = le.PlayCount.ToString();
+
+        lblXofY.Text = string.Format("{0} of {1}", CurrentTrackNo, txtNumTracks.Text);
       }
+    }
 
-      MusicBeeLibrary.Close();
-      MusicBeeLibrary.Dispose();
-      MusicBeeLibrary = null;
+    private void btnOpen_Click(object sender, EventArgs e)
+    {
+      //dlgOpen.Filter = "*.mbl";
+      //dlgOpen.ShowDialog();
 
-      using (var mblJson = System.IO.File.CreateText(".\\MusicBeeLibrary_test.json"))
+      MusicBeeLibrary = System.IO.File.Open(".\\MusicBeeLibrary.mbl", System.IO.FileMode.Open);
+
+      LibraryData = new MBLibrary();
+      LibraryData.Files = new List<LibraryEntry>();
+      LibraryData.LibraryFileCount = BitConverter.ToInt32(ReadBytesToArray(4)) >> 8;
+      txtNumTracks.Text = LibraryData.LibraryFileCount.ToString("#,###");
+
+      btnClose.BringToFront();
+      btnOpen.SendToBack();
+
+      CurrentTrackNo = 0;
+      TrackPositions = new Dictionary<int, long>();
+
+      GetTrack();
+
+      btnNext.Enabled = true;
+      btnPrev.Enabled = true;
+    }
+
+    private void frmMBLViewer_FormClosing(object sender, FormClosingEventArgs e)
+    {
+      CloseMBL();
+    }
+
+    private void btnClose_Click(object sender, EventArgs e)
+    {
+      CloseMBL();
+
+      btnClose.SendToBack();
+      btnOpen.BringToFront();
+
+      txtPath.Text = "";
+      txtLastPlayed.Text = "";
+      txtDateAdded.Text = "";
+      txtDateModified.Text = "";
+      txtSample.Text = "";
+      lblXofY.Text = "";
+      txtNumTracks.Text = "";
+      txtTrackLength.Text = "";
+      txtPlayCount.Text = "";
+
+      btnNext.Enabled = false;
+      btnPrev.Enabled = false;
+    }
+
+    private void CloseMBL()
+    {
+      TrackPositions = null;
+      LibraryData.Files = null;
+      LibraryData = null;
+
+      if (MusicBeeLibrary != null)
       {
-        mblJson.Write(mblJson);
-        mblJson.Close();
+        MusicBeeLibrary.Close();
+        MusicBeeLibrary.Dispose();
+        MusicBeeLibrary = null;
       }
+
+      btnClose.SendToBack();
+      btnOpen.BringToFront();
     }
   }
 }
