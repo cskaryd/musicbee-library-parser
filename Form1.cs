@@ -169,14 +169,35 @@ namespace MusicBeeReader
       GetTrack();
     }
 
-    private void GetTrack()
+    private void DisplayTrack(LibraryEntry le)
+    {
+      LibraryData.Files.Add(le);
+
+      txtPath.Text = le.FilePath;
+
+      if (le.dlp.HasValue)
+        txtLastPlayed.Text = le.dlp.Value.ToString("yyyy-MM-dd hh:mm:ss");
+      else
+        txtLastPlayed.Text = "";
+
+      txtDateAdded.Text = le.da.ToString("yyyy-MM-dd hh:mm:ss");
+      txtDateModified.Text = le.dm.ToString("yyyy-MM-dd hh:mm:ss");
+
+      txtSample.Text = le.SampleRate.ToString();
+      txtTrackLength.Text = le.TrackLength.ToString();
+      txtPlayCount.Text = le.PlayCount.ToString();
+
+      lblXofY.Text = string.Format("{0} of {1}", CurrentTrackNo, txtNumTracks.Text);
+    }
+
+    private LibraryEntry GetTrack()
     {
       var le = new LibraryEntry();
 
       le.FileDesignation = ReadBytesToArray(1)[0];
 
       if (le.FileDesignation == 1)
-        return; // FIXME - Log something here
+        return null; // FIXME - Log something here
 
       if (10 > le.FileDesignation && le.FileDesignation > 1)
       {
@@ -225,7 +246,7 @@ namespace MusicBeeReader
         dateBytes[7] = 8;
         le.DateModified = BitConverter.ToInt64(dateBytes);
 
-        Debug.WriteLine(le.FilePath);
+        //Debug.WriteLine(le.FilePath);
 
         while (true)
         {
@@ -277,25 +298,35 @@ namespace MusicBeeReader
 
           le.Tags.Add(new Tuple<byte, string>(tagCode, ReadStringFromBytes()));
         }
-
-        LibraryData.Files.Add(le);
-
-        txtPath.Text = le.FilePath;
-
-        if (le.dlp.HasValue)
-          txtLastPlayed.Text = le.dlp.Value.ToString("yyyy-MM-dd hh:mm:ss");
-        else
-          txtLastPlayed.Text = "";
-
-        txtDateAdded.Text = le.da.ToString("yyyy-MM-dd hh:mm:ss");
-        txtDateModified.Text = le.dm.ToString("yyyy-MM-dd hh:mm:ss");
-
-        txtSample.Text = le.SampleRate.ToString();
-        txtTrackLength.Text = le.TrackLength.ToString();
-        txtPlayCount.Text = le.PlayCount.ToString();
-
-        lblXofY.Text = string.Format("{0} of {1}", CurrentTrackNo, txtNumTracks.Text);
       }
+
+      return le;
+    }
+
+    private void btnExport_Click(object sender, EventArgs e)
+    {
+      this.Cursor = Cursors.WaitCursor;
+
+      MusicBeeLibrary = System.IO.File.Open("..\\..\\..\\MusicBeeLibrary.mbl", System.IO.FileMode.Open);
+
+      LibraryData = new MBLibrary();
+      LibraryData.Files = new List<LibraryEntry>();
+      LibraryData.LibraryFileCount = BitConverter.ToInt32(ReadBytesToArray(4)) >> 8;
+      txtNumTracks.Text = LibraryData.LibraryFileCount.ToString("#,###");
+
+      var allTracks = "";
+
+      for (int i = 0; i < LibraryData.LibraryFileCount - 1; i++)
+      {
+        var le = GetTrack();
+
+        allTracks = string.Format("{0}\r\n{1}", allTracks, le.FilePath);
+        lblXofY.Text = string.Format("{0} of {1}", (i + 1).ToString("#,##0"), LibraryData.LibraryFileCount.ToString("#,##0"));
+        Application.DoEvents();
+      }
+
+      Debug.WriteLine(allTracks);
+      this.Cursor = Cursors.Default;
     }
 
     private void btnOpen_Click(object sender, EventArgs e)
@@ -316,7 +347,7 @@ namespace MusicBeeReader
       CurrentTrackNo = 0;
       TrackPositions = new Dictionary<int, long>();
 
-      GetTrack();
+      DisplayTrack(GetTrack());
 
       btnNext.Enabled = true;
       btnPrev.Enabled = true;
